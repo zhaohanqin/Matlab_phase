@@ -1,4 +1,4 @@
-%% ================== 1. 读取多个绝对相位 .mat 文件 ==================
+%% ================== 1. 读取多个包裹相位 .mat 文件 ==================
 clc;
 clear;
 close all;
@@ -6,15 +6,15 @@ close all;
 % 1.1 配置多个相位文件（修改为你的文件名和标签）
 % 方式1：使用cell数组存储文件路径和标签
 % phase_files = {
-%     'unwrap_128_average_normalized.mat', '基准相位';  % 第一个文件（基准相位，红色）
-%     'unwrap_h_highest_phase2_normalized.mat', '对比相位1';
+%     'wrapped_phase1.mat', '基准包裹相位';  % 第一个文件（基准相位，红色）
+%     'wrapped_phase2.mat', '对比包裹相位1';
 %     % 可以添加更多文件
-%     % 'phase3.mat', '对比相位2';
+%     % 'wrapped_phase3.mat', '对比包裹相位2';
 % };
 
 % 或者方式2：如果只有一个文件，可以这样使用：
 phase_files = {
-    'unwrap_128_average_normalized.mat', '相位1';
+    'h_middle1_phase_wrapped.mat', '包裹相位1';
 };
 
 % 1.2 加载所有相位数据
@@ -23,7 +23,7 @@ phases = cell(num_phases, 1);
 labels = cell(num_phases, 1);
 
 fprintf('%s\n', repmat('=', 1, 70));
-fprintf('加载 %d 个相位文件...\n', num_phases);
+fprintf('加载 %d 个包裹相位文件...\n', num_phases);
 fprintf('%s\n', repmat('=', 1, 70));
 for i = 1:num_phases
     file_path = phase_files{i, 1};
@@ -39,8 +39,8 @@ for i = 1:num_phases
         phase = data.phase_data;
     elseif isfield(data, 'phase')
         phase = data.phase;
-    elseif isfield(data, 'abs_phase')
-        phase = data.abs_phase;
+    elseif isfield(data, 'wrapped_phase')
+        phase = data.wrapped_phase;
     else
         % 如果变量名不确定，尝试使用第一个字段
         field_names = fieldnames(data);
@@ -65,11 +65,20 @@ for i = 1:num_phases
     fprintf('  形状: [%d, %d]\n', size(phase, 1), size(phase, 2));
     fprintf('  相位范围: [%.4f, %.4f] rad (%.2fπ - %.2fπ)\n', ...
             phase_min, phase_max, phase_min/pi, phase_max/pi);
+    
+    % 检测是否为典型的包裹相位范围（-π到π或0到2π）
+    if phase_min >= -pi && phase_max <= pi
+        fprintf('  检测到包裹相位范围: [-π, π]\n');
+    elseif phase_min >= 0 && phase_max <= 2*pi
+        fprintf('  检测到包裹相位范围: [0, 2π]\n');
+    else
+        fprintf('  注意: 相位范围可能超出典型包裹相位范围\n');
+    end
 end
 fprintf('%s\n', repmat('=', 1, 70));
-fprintf('✓ 所有相位文件加载完成\n\n');
+fprintf('✓ 所有包裹相位文件加载完成\n\n');
 
-%% ================== 2. 3D 绝对相位可视化（多个相位分别显示）==================
+%% ================== 2. 3D 包裹相位可视化（多个相位分别显示）==================
 fprintf('%s\n', repmat('=', 1, 70));
 fprintf('生成3D表面图...\n');
 fprintf('%s\n', repmat('=', 1, 70));
@@ -89,9 +98,17 @@ for i = 1:num_phases
     surf(phase, 'EdgeColor', 'none');
     shading interp;
     
-    % 颜色与色条
-    colormap(parula);   % 可换：jet / turbo / viridis
+    % 颜色与色条（包裹相位推荐使用hsv或jet，因为相位是循环的）
+    % hsv颜色映射对包裹相位特别有用，因为它也是循环的
+    colormap(parula);   % 可换：jet / parula / turbo
     colorbar;
+    
+    % 如果相位范围是 -π 到 π，可以设置颜色条范围
+    if phase_min >= -pi && phase_max <= pi
+        caxis([-pi, pi]);
+    elseif phase_min >= 0 && phase_max <= 2*pi
+        caxis([0, 2*pi]);
+    end
     
     % 视角与坐标
     view(3);
@@ -99,7 +116,7 @@ for i = 1:num_phases
     
     xlabel('X (pixel)', 'FontSize', 12);
     ylabel('Y (pixel)', 'FontSize', 12);
-    zlabel('Absolute Phase (rad)', 'FontSize', 12);
+    zlabel('Wrapped Phase (rad)', 'FontSize', 12);
     
     % 标题
     title(sprintf('%s - 3D表面图 [%.2fπ , %.2fπ]', ...
@@ -141,14 +158,13 @@ end
 row_index = max(1, min(row_index, height));  % MATLAB索引从1开始
 
 fprintf('\n%s\n', repmat('=', 1, 70));
-fprintf('生成相位变化曲线比较图...\n');
+fprintf('生成包裹相位变化曲线比较图...\n');
 fprintf('%s\n', repmat('=', 1, 70));
 fprintf('\n选择行索引（纵坐标）: %d (位置: %s)\n', row_index, position);
 
-% 3.2 提取所有相位的行数据并计算斜率
+% 3.2 提取所有相位的行数据并计算统计信息
 line_data_list = cell(num_phases, 1);
-slopes = zeros(num_phases, 1);
-intercepts = zeros(num_phases, 1);
+wrapping_counts = zeros(num_phases, 1);  % 记录相位跳跃次数
 
 % 确定最小宽度（确保所有相位长度一致）
 min_width = width;
@@ -158,11 +174,6 @@ for i = 1:num_phases
 end
 
 column_indices = 1:min_width;
-
-% 计算斜率使用的区域（中间80%）
-start_idx = round(min_width * 0.1);
-end_idx = round(min_width * 0.9);
-x_fit = column_indices(start_idx:end_idx);
 
 for i = 1:num_phases
     phase = phases{i};
@@ -174,29 +185,32 @@ for i = 1:num_phases
     line_data = phase(row_idx, 1:min_width);
     line_data_list{i} = line_data;
     
-    % 计算斜率（使用中间80%的数据进行线性拟合）
-    y_fit = line_data(start_idx:end_idx);
-    % 排除NaN值
-    valid_idx = ~isnan(y_fit);
-    if sum(valid_idx) > 10  % 至少需要10个有效点
-        x_valid = x_fit(valid_idx);
-        y_valid = y_fit(valid_idx);
-        coeffs = polyfit(x_valid, y_valid, 1);
-        slopes(i) = coeffs(1);
-        intercepts(i) = coeffs(2);
-    else
-        slopes(i) = 0.0;
-        intercepts(i) = 0.0;
-    end
+    % 检测相位跳跃（包裹相位特有的特征）
+    % 计算相邻点之间的相位差
+    phase_diff = diff(line_data);
+    
+    % 对于包裹相位，相位跳跃通常发生在边界处：
+    % -π 到 π 范围：从 π 跳到 -π（差值接近 2π）或从 -π 跳到 π（差值接近 -2π）
+    % 0 到 2π 范围：从 2π 跳到 0（差值接近 -2π）或从 0 跳到 2π（差值接近 2π）
+    % 因此，使用 π 作为阈值来检测这些大的相位跳跃
+    jump_threshold = pi;
+    
+    % 统计大的相位跳跃（绝对值大于阈值）
+    % 注意：对于包裹相位，真正的跳跃是接近 ±2π 的差值，但使用 π 作为阈值可以检测到这些跳跃
+    large_jumps = abs(phase_diff) > jump_threshold;
+    wrapping_counts(i) = sum(large_jumps);
     
     % 输出统计信息
     line_min = min(line_data(:));
     line_max = max(line_data(:));
     line_mean = mean(line_data(~isnan(line_data)));
+    line_std = std(line_data(~isnan(line_data)));
+    
     fprintf('\n[%d] %s:\n', i, label);
     fprintf('  相位范围: [%.4f, %.4f] rad\n', line_min, line_max);
     fprintf('  平均值: %.4f rad\n', line_mean);
-    fprintf('  斜率: %.6f rad/pixel\n', slopes(i));
+    fprintf('  标准差: %.4f rad\n', line_std);
+    fprintf('  相位跳跃次数: %d\n', wrapping_counts(i));
 end
 
 % 3.3 创建比较图（所有相位在一个图上）
@@ -232,24 +246,43 @@ for i = 1:num_phases
     
     plot(column_indices, line_data, '-', 'LineWidth', linewidth, ...
          'Color', color, 'DisplayName', ...
-         sprintf('%s (斜率: %.6f rad/pixel)', label, slopes(i)));
+         sprintf('%s (跳跃: %d次)', label, wrapping_counts(i)));
+end
+
+% 添加相位边界线（如果相位范围是 -π 到 π 或 0 到 2π）
+first_phase_min = min(line_data_list{1}(:));
+first_phase_max = max(line_data_list{1}(:));
+if first_phase_min >= -pi - 0.1 && first_phase_max <= pi + 0.1
+    % 绘制 -π 和 π 参考线
+    plot([1, min_width], [-pi, -pi], '--k', 'LineWidth', 1, ...
+         'DisplayName', '-π', 'HandleVisibility', 'off');
+    plot([1, min_width], [pi, pi], '--k', 'LineWidth', 1, ...
+         'DisplayName', 'π', 'HandleVisibility', 'off');
+    ylim([-pi*1.1, pi*1.1]);
+elseif first_phase_min >= -0.1 && first_phase_max <= 2*pi + 0.1
+    % 绘制 0 和 2π 参考线
+    plot([1, min_width], [0, 0], '--k', 'LineWidth', 1, ...
+         'DisplayName', '0', 'HandleVisibility', 'off');
+    plot([1, min_width], [2*pi, 2*pi], '--k', 'LineWidth', 1, ...
+         'DisplayName', '2π', 'HandleVisibility', 'off');
+    ylim([-0.1, 2*pi + 0.1]);
 end
 
 % 设置图形属性
-title(sprintf('多相位变化曲线比较 - 第 %d 行（%s位置）', row_index, position), ...
+title(sprintf('多包裹相位变化曲线比较 - 第 %d 行（%s位置）', row_index, position), ...
       'FontSize', 16);
 xlabel('列索引 (pixels)', 'FontSize', 14);
-ylabel('相位值 (rad)', 'FontSize', 14);
+ylabel('包裹相位值 (rad)', 'FontSize', 14);
 grid on;
 grid minor;
 legend('Location', 'best', 'FontSize', 11);
 hold off;
 
 fprintf('\n%s\n', repmat('=', 1, 70));
-fprintf('✓ 相位变化曲线比较图生成完成\n');
+fprintf('✓ 包裹相位变化曲线比较图生成完成\n');
 fprintf('%s\n', repmat('=', 1, 70));
 
 % 3.4 保存图像（可选，取消注释以保存）
-% save_path = sprintf('phase_comparison_row_%d.png', row_index);
+% save_path = sprintf('wrapped_phase_comparison_row_%d.png', row_index);
 % print(gcf, save_path, '-dpng', '-r400');
 % fprintf('\n✓ 比较图已保存: %s\n', save_path);
