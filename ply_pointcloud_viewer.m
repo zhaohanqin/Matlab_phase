@@ -1,3 +1,5 @@
+% 文件用途：提供图形界面方式打开、浏览和简单处理 PLY 点云（包含信息统计和网格下采样）。
+% 使用方式：在 MATLAB 命令行中调用 `ply_pointcloud_viewer`，在弹出的 UI 中点击 “Open PLY File” 选择点云文件，再通过下采样、重置视角和保存截图等按钮进行交互操作。
 function ply_pointcloud_viewer
     % PLY 点云交互查看器
     % 功能：
