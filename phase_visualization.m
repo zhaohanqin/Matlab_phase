@@ -6,7 +6,7 @@ clear;
 close all;
 
 % 1.1 加载数据（修改为你的文件名）
-data = load('unwrap_128_average_normalized.mat');   % ← 改成你的 .mat 文件名
+data = load('H:\code\Matlab_phase\wrapped_phase_low.mat');   % ← 改成你的 .mat 文件名
 
 % 1.2 取出相位变量（根据实际变量名修改）
 phase = data.phase_data;             % ← 常见命名：phase / phase_data / abs_phase
